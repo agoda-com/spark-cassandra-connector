@@ -1,12 +1,10 @@
 package com.datastax.spark.connector.writer
 
-import java.util.concurrent.{CompletionStage, Semaphore}
+import java.util.concurrent.{CompletionStage, ConcurrentLinkedQueue, Semaphore}
 import java.util.function.BiConsumer
-
 import com.datastax.spark.connector.util.Logging
 
 import scala.collection.JavaConverters._
-import scala.collection.concurrent.TrieMap
 import scala.util.Try
 import AsyncExecutor.Handler
 import com.datastax.oss.driver.api.core.{AllNodesFailedException, NoNodeAvailableException}
@@ -21,7 +19,7 @@ class AsyncExecutor[T, R](asyncAction: T => CompletionStage[R], maxConcurrentTas
                           successHandler: Option[Handler[T]] = None, failureHandler: Option[Handler[T]]) extends Logging {
 
   private val semaphore = new Semaphore(maxConcurrentTasks)
-  private val pendingFutures = new TrieMap[Future[R], Boolean]
+  private val pendingFutures = new ConcurrentLinkedQueue[Future[R]]
 
   @volatile private var latestException: Option[Throwable] = None
 
@@ -36,7 +34,7 @@ class AsyncExecutor[T, R](asyncAction: T => CompletionStage[R], maxConcurrentTas
     semaphore.acquire()
 
     val promise = Promise[R]()
-    pendingFutures.put(promise.future, true)
+    pendingFutures.add(promise.future)
 
     val executionTimestamp = System.nanoTime()
 
@@ -46,7 +44,7 @@ class AsyncExecutor[T, R](asyncAction: T => CompletionStage[R], maxConcurrentTas
       value.whenComplete(new BiConsumer[R, Throwable] {
         private def release() {
           semaphore.release()
-          pendingFutures.remove(promise.future)
+          pendingFutures.remove(promise.future) // Could change to be use .poll() if we do not care which promise future to use, any promise from the queue should be fine as long as there's one available
         }
 
         private def onSuccess(result: R) {
@@ -97,8 +95,10 @@ class AsyncExecutor[T, R](asyncAction: T => CompletionStage[R], maxConcurrentTas
     * It will not wait for tasks scheduled for execution during this method call,
     * nor tasks for which the [[executeAsync]] method did not complete. */
   def waitForCurrentlyExecutingTasks() {
-    for ((future, _) <- pendingFutures.snapshot())
+    while(!pendingFutures.isEmpty){
+      val future = pendingFutures.poll()
       Try(Await.result(future, Duration.Inf))
+    }
   }
 }
 
