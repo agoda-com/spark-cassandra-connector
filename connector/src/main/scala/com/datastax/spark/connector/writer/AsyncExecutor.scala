@@ -44,7 +44,7 @@ class AsyncExecutor[T, R](asyncAction: T => CompletionStage[R], maxConcurrentTas
       value.whenComplete(new BiConsumer[R, Throwable] {
         private def release() {
           semaphore.release()
-          pendingFutures.remove(promise.future) // Could change to be use .poll() if we do not care which promise future to use, any promise from the queue should be fine as long as there's one available
+          pendingFutures.remove(promise.future)
         }
 
         private def onSuccess(result: R) {
