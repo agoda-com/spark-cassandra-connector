@@ -95,8 +95,7 @@ class AsyncExecutor[T, R](asyncAction: T => CompletionStage[R], maxConcurrentTas
     * It will not wait for tasks scheduled for execution during this method call,
     * nor tasks for which the [[executeAsync]] method did not complete. */
   def waitForCurrentlyExecutingTasks() {
-    while(!pendingFutures.isEmpty){
-      val future = pendingFutures.poll()
+    for (future <- pendingFutures.toArray(new Array[Future[R]](0))){
       Try(Await.result(future, Duration.Inf))
     }
   }
