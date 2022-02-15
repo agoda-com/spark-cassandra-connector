@@ -2,7 +2,6 @@ package com.datastax.spark.connector.writer
 
 import java.util.concurrent.{CompletionStage, Semaphore}
 import java.util.function.BiConsumer
-
 import com.datastax.spark.connector.util.Logging
 
 import scala.collection.JavaConverters._
@@ -13,6 +12,7 @@ import com.datastax.oss.driver.api.core.{AllNodesFailedException, NoNodeAvailabl
 import com.datastax.oss.driver.api.core.connection.BusyConnectionException
 import com.datastax.oss.driver.api.core.servererrors.OverloadedException
 
+import java.util.UUID
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future, Promise}
 
@@ -21,7 +21,7 @@ class AsyncExecutor[T, R](asyncAction: T => CompletionStage[R], maxConcurrentTas
                           successHandler: Option[Handler[T]] = None, failureHandler: Option[Handler[T]]) extends Logging {
 
   private val semaphore = new Semaphore(maxConcurrentTasks)
-  private val pendingFutures = new TrieMap[Future[R], Boolean]
+  private val pendingFutures = new TrieMap[UUID, Future[R]]
 
   @volatile private var latestException: Option[Throwable] = None
 
@@ -36,7 +36,8 @@ class AsyncExecutor[T, R](asyncAction: T => CompletionStage[R], maxConcurrentTas
     semaphore.acquire()
 
     val promise = Promise[R]()
-    pendingFutures.put(promise.future, true)
+    val promiseKey = UUID.randomUUID()
+    pendingFutures.put(promiseKey, promise.future)
 
     val executionTimestamp = System.nanoTime()
 
@@ -46,7 +47,7 @@ class AsyncExecutor[T, R](asyncAction: T => CompletionStage[R], maxConcurrentTas
       value.whenComplete(new BiConsumer[R, Throwable] {
         private def release() {
           semaphore.release()
-          pendingFutures.remove(promise.future)
+          pendingFutures.remove(promiseKey)
         }
 
         private def onSuccess(result: R) {
@@ -97,7 +98,7 @@ class AsyncExecutor[T, R](asyncAction: T => CompletionStage[R], maxConcurrentTas
     * It will not wait for tasks scheduled for execution during this method call,
     * nor tasks for which the [[executeAsync]] method did not complete. */
   def waitForCurrentlyExecutingTasks() {
-    for ((future, _) <- pendingFutures.snapshot())
+    for ((_, future) <- pendingFutures.snapshot())
       Try(Await.result(future, Duration.Inf))
   }
 }
