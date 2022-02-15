@@ -2,6 +2,8 @@ package com.datastax.spark.connector.writer
 
 import java.util.concurrent.{CompletionStage, Semaphore}
 import java.util.function.BiConsumer
+import java.util.UUID
+
 import com.datastax.spark.connector.util.Logging
 
 import scala.collection.JavaConverters._
@@ -12,7 +14,6 @@ import com.datastax.oss.driver.api.core.{AllNodesFailedException, NoNodeAvailabl
 import com.datastax.oss.driver.api.core.connection.BusyConnectionException
 import com.datastax.oss.driver.api.core.servererrors.OverloadedException
 
-import java.util.UUID
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future, Promise}
 
